@@ -16,13 +16,17 @@ class Signup(Resource):
         image_url = data.get('image_url')
         bio = data.get('bio')
         if not username:
-            errors.append('Username is required.')
+            errors.append('Username must be present.')
         if not password:
-            errors.append('Password is required.')
+            errors.append('Password must be present.')
         if errors:
             return {'errors': errors}, 422
         try:
-            user = User(username=username, image_url=image_url, bio=bio)
+            user = User(
+                username=username,
+                image_url=image_url,
+                bio=bio
+            )
             user.password_hash = password
             db.session.add(user)
             db.session.commit()
@@ -36,12 +40,15 @@ class Signup(Resource):
         except IntegrityError:
             db.session.rollback()
             return {'errors': ['Username must be unique.']}, 422
+        except ValueError as e:
+            db.session.rollback()
+            return {'errors': [str(e)]}, 422
 
 class CheckSession(Resource):
     def get(self):
         user_id = session.get('user_id')
         if user_id:
-            user = db.session.get(User, user_id)
+            user = User.query.get(user_id)
             if user:
                 return {
                     'id': user.id,
@@ -70,7 +77,7 @@ class Login(Resource):
 class Logout(Resource):
     def delete(self):
         if session.get('user_id'):
-            session.pop('user_id')
+            session['user_id'] = None
             return '', 204
         return {'error': 'Unauthorized'}, 401
 
@@ -80,21 +87,20 @@ class RecipeIndex(Resource):
         if not user_id:
             return {'error': 'Unauthorized'}, 401
         recipes = Recipe.query.all()
-        result = []
-        for recipe in recipes:
-            result.append({
-                'id': recipe.id,
-                'title': recipe.title,
-                'instructions': recipe.instructions,
-                'minutes_to_complete': recipe.minutes_to_complete,
+        return [
+            {
+                'id': r.id,
+                'title': r.title,
+                'instructions': r.instructions,
+                'minutes_to_complete': r.minutes_to_complete,
                 'user': {
-                    'id': recipe.user.id,
-                    'username': recipe.user.username,
-                    'image_url': recipe.user.image_url,
-                    'bio': recipe.user.bio
+                    'id': r.user.id,
+                    'username': r.user.username,
+                    'image_url': r.user.image_url,
+                    'bio': r.user.bio
                 }
-            })
-        return result, 200
+            } for r in recipes
+        ], 200
 
     def post(self):
         user_id = session.get('user_id')
@@ -104,9 +110,9 @@ class RecipeIndex(Resource):
         errors = []
         title = data.get('title')
         instructions = data.get('instructions')
-        minutes_to_complete = data.get('minutes_to_complete')
+        minutes = data.get('minutes_to_complete')
         if not title:
-            errors.append('Title is required.')
+            errors.append('Title must be present.')
         if not instructions or len(instructions) < 50:
             errors.append('Instructions must be at least 50 characters long.')
         if errors:
@@ -115,12 +121,12 @@ class RecipeIndex(Resource):
             recipe = Recipe(
                 title=title,
                 instructions=instructions,
-                minutes_to_complete=minutes_to_complete,
+                minutes_to_complete=minutes,
                 user_id=user_id
             )
             db.session.add(recipe)
             db.session.commit()
-            user = db.session.get(User, user_id)
+            user = User.query.get(user_id)
             return {
                 'id': recipe.id,
                 'title': recipe.title,
@@ -133,9 +139,10 @@ class RecipeIndex(Resource):
                     'bio': user.bio
                 }
             }, 201
-        except Exception as e:
+        except ValueError as e:
             db.session.rollback()
             return {'errors': [str(e)]}, 422
+
 
 api.add_resource(Signup, '/signup', endpoint='signup')
 api.add_resource(CheckSession, '/check_session', endpoint='check_session')
